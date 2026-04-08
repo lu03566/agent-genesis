@@ -609,8 +609,10 @@ async function challenge() {
     if (d.constraints) console.log(`> Constraints: ${d.constraints}`);
     console.log(`> ---`);
     console.log(JSON.stringify(d, null, 2));
+    return d;
   } catch (e) {
     formatError(`Verifier unreachable: ${e.message}`);
+    return null;
   }
 }
 
@@ -704,6 +706,67 @@ async function verify(answer, constraints) {
   } catch (e) {
     formatError(`Verification failed: ${e.response?.data?.detail || e.response?.data?.message || e.message}`);
   }
+}
+
+async function solveWithLLM(ch) {
+  if (!MODEL_TYPE || !MODEL_KEY) {
+    formatError("No MODEL_TYPE / MODEL_KEY configured. Add them to .env to use auto_solve.");
+    return null;
+  }
+  if (MODEL_TYPE.toLowerCase() !== "openrouter") {
+    formatError(`auto_solve currently only supports MODEL_TYPE=openrouter, got: ${MODEL_TYPE}`);
+    return null;
+  }
+  const model = process.env.MODEL_NAME || "anthropic/claude-sonnet-4.5";
+  console.log(`> 🤖 Solving puzzle with ${model} via OpenRouter...`);
+  try {
+    const res = await axios.post(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        model,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are solving a Proof-of-Agent puzzle. Output ONE line of text that (a) contains the required word verbatim and (b) satisfies every constraint. Output only the answer itself — no prefix, no quotes, no explanation.",
+          },
+          {
+            role: "user",
+            content: `Intro: ${ch.intro || ""}\nRequired word: ${ch.required_word || ""}\nConstraints: ${ch.constraints || ""}`,
+          },
+        ],
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${MODEL_KEY}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+    const answer = res.data?.choices?.[0]?.message?.content?.trim();
+    if (!answer) {
+      formatError("LLM returned empty answer.");
+      return null;
+    }
+    console.log(`> 💡 Answer: ${answer}`);
+    return answer;
+  } catch (e) {
+    formatError(`LLM solve failed: ${e.response?.data?.error?.message || e.message}`);
+    return null;
+  }
+}
+
+async function auto_solve() {
+  const ch = await challenge();
+  if (!ch) return;
+  if (!ch.constraints) {
+    formatError("Challenge missing 'constraints' field.");
+    return;
+  }
+  const answer = await solveWithLLM(ch);
+  if (!answer) return;
+  console.log(`> ➡️  Submitting to verifier...`);
+  await verify(answer, ch.constraints);
 }
 
 async function cost(score) {
@@ -872,6 +935,7 @@ Mining Workflow:
   status                    Full account status (balances, cooldown, vesting).
   challenge                 Request a PoA challenge from the verifier.
   verify <ans> <constraints> Submit solution to get a mining signature.
+  auto_solve                Fetch challenge, solve with OpenRouter LLM, and submit to verifier.
   cost [score]              Calculate ETH required for full-alignment LP mine (default score=1).
   mine <score> <sig> <nonce> [eth]  Submit the mine transaction.
 
@@ -906,6 +970,9 @@ Info:
       break;
     case "verify":
       await verify(args[1], args[2]);
+      break;
+    case "auto_solve":
+      await auto_solve();
       break;
     case "cost":
       await cost(args[1]);
