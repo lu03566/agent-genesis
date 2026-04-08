@@ -704,7 +704,9 @@ async function verify(answer, constraints) {
     console.log(`> ---`);
     console.log(JSON.stringify(d, null, 2));
   } catch (e) {
-    formatError(`Verification failed: ${e.response?.data?.detail || e.response?.data?.message || e.message}`);
+    const raw = e.response?.data?.detail ?? e.response?.data?.message ?? e.response?.data ?? e.message;
+    const reason = typeof raw === "string" ? raw : JSON.stringify(raw);
+    formatError(`Verification failed: ${reason}`);
   }
 }
 
