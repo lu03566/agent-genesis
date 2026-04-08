@@ -680,10 +680,11 @@ async function verify(answer, constraints) {
   const { reclaimProofStr, modelTypeStr } = await reclaim_bill();
 
   try {
+    const constraintsStr = typeof constraints === "string" ? constraints : JSON.stringify(constraints);
     const payload = {
       wallet_address: signer.address,
       answer_text: answer,
-      constraints: constraints,
+      constraints: constraintsStr,
     };
     if (reclaimProofStr) {
       payload.reclaim_proof = reclaimProofStr;
